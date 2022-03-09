@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// injectEnv is a container for the mutation injecting environment vars
+// injectCurl is a container for the mutation injecting environment vars
 type injectCurl struct {
 	Logger logrus.FieldLogger
 }
 
-// injectEnv implements the podMutator interface
+// injectCurl implements the podMutator interface
 var _ podMutator = (*injectCurl)(nil)
 
 // Name returns the struct name
@@ -71,7 +71,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 			se.Logger.Debugf("Replacing liveness probes for %s", container.Name)
 
 			// Build out the new exec probe for the curl container
-			curlContainer.LivenessProbe = buildExecProbe(container.LivenessProbe)
+			curlContainer.LivenessProbe = buildExecProbe(container.LivenessProbe, container.Ports)
 
 			// Unset the liveness probe because it was replaced by a curl container
 			pod.Spec.Containers[i].LivenessProbe = nil
@@ -82,7 +82,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 			se.Logger.Debugf("Replacing readiness probes for %s", container.Name)
 
 			// Build out the new exec probe for the curl container
-			curlContainer.ReadinessProbe = buildExecProbe(container.ReadinessProbe)
+			curlContainer.ReadinessProbe = buildExecProbe(container.ReadinessProbe, container.Ports)
 
 			// Unset the liveness probe because it was replaced by a curl container
 			pod.Spec.Containers[i].ReadinessProbe = nil
@@ -97,13 +97,34 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 	}
 }
 
-func buildExecCommand(probe *corev1.HTTPGetAction) *corev1.ExecAction {
+func buildExecCommand(probe *corev1.HTTPGetAction, ports []corev1.ContainerPort) *corev1.ExecAction {
+	scheme := strings.ToLower(string(probe.Scheme))
+	if scheme == "" {
+		scheme = "http"
+	}
+
 	host := probe.Host
 	if host == "" {
 		host = "127.0.0.1"
 	}
 
+	// try to get the port straight away
 	port := probe.Port.IntVal
+
+	// if we did not get a port, we need to find one from the containers ports array
+	if port == 0 && probe.Port.StrVal != "" {
+		namedPort := probe.Port.StrVal
+
+		// look over the defined named ports, and try to match them with the defined port for the probe
+		for _, v := range ports {
+			if v.Name == namedPort {
+				port = v.ContainerPort
+				break
+			}
+		}
+	}
+
+	// this is a fallback port if one is not defined
 	if port == 0 {
 		port = 80
 	}
@@ -112,7 +133,7 @@ func buildExecCommand(probe *corev1.HTTPGetAction) *corev1.ExecAction {
 		Command: []string{
 			"curl",
 			fmt.Sprintf("%s://%s:%d%s",
-				strings.ToLower(string(probe.Scheme)),
+				scheme,
 				host,
 				port,
 				probe.Path),
@@ -127,10 +148,10 @@ func buildExecCommand(probe *corev1.HTTPGetAction) *corev1.ExecAction {
 	return execAction
 }
 
-func buildExecProbe(probe *corev1.Probe) *corev1.Probe {
+func buildExecProbe(probe *corev1.Probe, ports []corev1.ContainerPort) *corev1.Probe {
 	return &corev1.Probe{
 		Handler: corev1.Handler{
-			Exec: buildExecCommand(probe.Handler.HTTPGet),
+			Exec: buildExecCommand(probe.Handler.HTTPGet, ports),
 		},
 		InitialDelaySeconds:           probe.InitialDelaySeconds,
 		TimeoutSeconds:                probe.TimeoutSeconds,
