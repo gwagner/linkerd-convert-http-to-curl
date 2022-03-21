@@ -2,9 +2,10 @@ package mutation
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	"strings"
 )
 
 // injectCurl is a container for the mutation injecting environment vars
@@ -55,14 +56,8 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 	for i, container := range pod.Spec.Containers {
 
 		// if we dont actually have any http probes, no need to do a conversion and we can bail
-		if container.LivenessProbe == nil && container.ReadinessProbe == nil {
-			se.Logger.Debugf("No readiness or liveness probes found, skipping %s", container.Name)
-			continue
-		}
-
-		// if we dont actually have any http probes, no need to do a conversion and we can bail
-		if container.LivenessProbe.Handler.HTTPGet == nil && container.ReadinessProbe.Handler.HTTPGet == nil {
-			se.Logger.Debugf("No http readiness or liveness probes found, skipping %s", container.Name)
+		if !isValidProbe(container.LivenessProbe) && !isValidProbe(container.ReadinessProbe) {
+			se.Logger.Debugf("No valid readiness or liveness probes found, skipping %s", container.Name)
 			continue
 		}
 
@@ -95,6 +90,17 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		pod.Spec.Containers = append(pod.Spec.Containers, curlContainer)
 		pod.Annotations["valewood.org/local-curl-probe"] = "yes"
 	}
+}
+
+func isValidProbe(probe *corev1.Probe) bool {
+	if probe == nil {
+		return false
+	}
+	if probe.Handler.HTTPGet == nil {
+		return false
+	}
+
+	return true
 }
 
 func buildExecCommand(probe *corev1.HTTPGetAction, ports []corev1.ContainerPort) *corev1.ExecAction {
