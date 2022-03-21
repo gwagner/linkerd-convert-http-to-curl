@@ -62,7 +62,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		}
 
 		// If we have an HTTP Get liveness probe, we need to inject a curl pod
-		if container.LivenessProbe.Handler.HTTPGet != nil {
+		if isValidProbe(container.LivenessProbe) {
 			se.Logger.Debugf("Replacing liveness probes for %s", container.Name)
 
 			// Build out the new exec probe for the curl container
@@ -73,7 +73,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		}
 
 		// If we have an HTTP Get liveness probe, we need to inject a curl pod
-		if container.ReadinessProbe.Handler.HTTPGet != nil {
+		if isValidProbe(container.ReadinessProbe) {
 			se.Logger.Debugf("Replacing readiness probes for %s", container.Name)
 
 			// Build out the new exec probe for the curl container
