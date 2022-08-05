@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -33,13 +34,6 @@ func (se injectCurl) Mutate(pod *corev1.Pod) (*corev1.Pod, error) {
 
 // injectCurlPod injects a var in both containers and init containers of a pod
 func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
-	curlContainer := corev1.Container{
-		Command:                  []string{"sleep", "365d"},
-		Image:                    "rancher/curl:latest",
-		ImagePullPolicy:          corev1.PullIfNotPresent,
-		TerminationMessagePath:   "/dev/termination-log",
-		TerminationMessagePolicy: "FallbackToLogsOnError",
-	}
 
 	// if this is not a linkerd pod, do nothing
 	if _, ok := pod.Annotations["linkerd.io/proxy-version"]; !ok {
@@ -55,6 +49,14 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 
 	for i, container := range pod.Spec.Containers {
 
+		curlContainer := corev1.Container{
+			Command:                  []string{"sleep", "365d"},
+			Image:                    "rancher/curl:latest",
+			ImagePullPolicy:          corev1.PullIfNotPresent,
+			TerminationMessagePath:   "/dev/termination-log",
+			TerminationMessagePolicy: "FallbackToLogsOnError",
+		}
+
 		// if we dont actually have any http probes, no need to do a conversion and we can bail
 		if !isValidProbe(container.LivenessProbe) && !isValidProbe(container.ReadinessProbe) {
 			se.Logger.Debugf("No valid readiness or liveness probes found, skipping %s", container.Name)
@@ -64,6 +66,14 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		// If we have an HTTP Get liveness probe, we need to inject a curl pod
 		if isValidProbe(container.LivenessProbe) {
 			se.Logger.Debugf("Replacing liveness probes for %s", container.Name)
+
+			// store the liveness probe in an annotation
+			dat, err := json.Marshal(container.LivenessProbe)
+			if err != nil {
+				se.Logger.Debugf("Unable to marshal liveness probe for %s", container.Name)
+				continue
+			}
+			pod.Annotations[fmt.Sprintf("valewood.org/lcp-olp-%s", container.Name)] = string(dat)
 
 			// Build out the new exec probe for the curl container
 			curlContainer.LivenessProbe = buildExecProbe(container.LivenessProbe, container.Ports)
@@ -75,6 +85,14 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		// If we have an HTTP Get liveness probe, we need to inject a curl pod
 		if isValidProbe(container.ReadinessProbe) {
 			se.Logger.Debugf("Replacing readiness probes for %s", container.Name)
+
+			// store the readiness probe in an annotation
+			dat, err := json.Marshal(container.ReadinessProbe)
+			if err != nil {
+				se.Logger.Debugf("Unable to marshal readiness probe for %s", container.Name)
+				continue
+			}
+			pod.Annotations[fmt.Sprintf("valewood.org/lcp-orp-%s", container.Name)] = string(dat)
 
 			// Build out the new exec probe for the curl container
 			curlContainer.ReadinessProbe = buildExecProbe(container.ReadinessProbe, container.Ports)
@@ -89,6 +107,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		se.Logger.Debugf("Adding new container %s", curlContainer.Name)
 		pod.Spec.Containers = append(pod.Spec.Containers, curlContainer)
 		pod.Annotations["valewood.org/local-curl-probe"] = "yes"
+
 	}
 }
 
