@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	admissionv1 "k8s.io/api/admission/v1"
 )
@@ -24,8 +25,31 @@ func main() {
 	if os.Getenv("TLS") == "true" {
 		cert := "/etc/admission-webhook/tls/tls.crt"
 		key := "/etc/admission-webhook/tls/tls.key"
-		logrus.Print("Listening on port 443...")
-		logrus.Fatal(http.ListenAndServeTLS(":443", cert, key, nil))
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			logrus.Fatal("NewWatcher failed: ", err)
+		}
+		defer watcher.Close()
+		if err := watcher.Add("/etc/admission-webhook/tls/tls.crt"); err != nil {
+			logrus.Fatal("watcher.Add failed: ", err)
+		}
+
+		done := make(chan bool)
+		go func() {
+			defer close(done)
+			logrus.Print("Listening on port 443...")
+			logrus.Fatal(http.ListenAndServeTLS(":443", cert, key, nil))
+		}()
+
+		select {
+		case event := <-watcher.Events:
+			logrus.Printf("%s %s\n", event.Name, event.Op)
+		case err := <-watcher.Errors:
+			logrus.Println("error:", err)
+		case <-done:
+			logrus.Println("HTTP Server Finished")
+		}
+
 	} else {
 		logrus.Print("Listening on port 8080...")
 		logrus.Fatal(http.ListenAndServe(":8080", nil))

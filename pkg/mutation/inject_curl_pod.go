@@ -41,7 +41,7 @@ func (se injectCurl) injectCurlPod(pod *corev1.Pod) {
 		return
 	}
 
-	// if this is not a linkerd pod, do nothing
+	// if this already has the probe injected, do nothing
 	if _, ok := pod.Annotations["valewood.org/local-curl-probe"]; ok {
 		se.Logger.Debug("Local curl probes already injected, skipping")
 		return

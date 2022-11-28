@@ -3,6 +3,7 @@ module github.com/gwagner/linkerd-convert-http-to-curl
 go 1.16
 
 require (
+	github.com/fsnotify/fsnotify v1.4.9
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/sirupsen/logrus v1.8.1
 	github.com/slackhq/simple-kubernetes-webhook v0.0.0-20211014080913-8b884847badb
